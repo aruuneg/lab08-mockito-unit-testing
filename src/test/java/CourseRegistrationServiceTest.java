@@ -1,5 +1,6 @@
-import mn.edu.must.sqat.*;
+package mn.edu.must.sqat;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -27,57 +28,101 @@ class CourseRegistrationServiceTest {
     @InjectMocks
     CourseRegistrationService service;
 
-    @ParameterizedTest
-    @CsvSource({
-            "MISSING,ERROR_NO_STUDENT",
-            "INACTIVE,ERROR_INACTIVE_STUDENT",
-            "NO_COURSE,ERROR_NO_COURSE"
-    })
-    @DisplayName("Гурван алдааны ангийг параметржүүлсэн тестээр")
-    void errorScenariosParameterizedTest(
-            String scenario,
-            String expectedResult) {
+    @BeforeEach
+    void setUp() {
+        service =
+                new CourseRegistrationService(
+                        repository,
+                        emailSender
+                );
+    }
 
-        if (scenario.equals("MISSING")) {
+    @Test
+    @DisplayName("Амжилттай бүртгэл OK буцаана")
+    void savesRegistrationWhenValid() {
 
-            when(repository.findStudent("S1"))
-                    .thenReturn(null);
-        }
+        Student student =
+                new Student(
+                        "S1",
+                        "student@test.com",
+                        true,
+                        List.of("CS201")
+                );
 
-        if (scenario.equals("INACTIVE")) {
+        when(repository.findStudent("S1"))
+                .thenReturn(student);
 
-            Student student =
-                    new Student(
-                            "S1",
-                            "a@test.com",
-                            false,
-                            List.of()
-                    );
+        when(repository.courseExists("CS313"))
+                .thenReturn(true);
 
-            when(repository.findStudent("S1"))
-                    .thenReturn(student);
-        }
+        when(repository.prerequisites("CS313"))
+                .thenReturn(List.of("CS201"));
 
-        if (scenario.equals("NO_COURSE")) {
+        String result =
+                service.register("S1", "CS313");
 
-            Student student =
-                    new Student(
-                            "S1",
-                            "a@test.com",
-                            true,
-                            List.of()
-                    );
+        assertEquals("OK", result);
 
-            when(repository.findStudent("S1"))
-                    .thenReturn(student);
+        verify(repository)
+                .saveRegistration("S1", "CS313");
 
-            when(repository.courseExists("CS313"))
-                    .thenReturn(false);
-        }
+        verify(emailSender)
+                .send(
+                        eq("student@test.com"),
+                        anyString(),
+                        contains("CS313")
+                );
+    }
 
-        String result = service.register("S1", "CS313");
+    @Test
+    @DisplayName("Оюутан байхгүй үед ERROR_NO_STUDENT")
+    void returnsErrorWhenStudentMissing() {
 
-        assertEquals(expectedResult, result);
+        when(repository.findStudent("S1"))
+                .thenReturn(null);
+
+        String result =
+                service.register("S1", "CS313");
+
+        assertEquals(
+                "ERROR_NO_STUDENT",
+                result
+        );
+
+        verify(repository, never())
+                .saveRegistration(any(), any());
+
+        verify(emailSender, never())
+                .send(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("Идэвхгүй оюутан бүртгэгдэхгүй")
+    void doesNotRegisterInactiveStudent() {
+
+        Student student =
+                new Student(
+                        "S1",
+                        "a@test.com",
+                        false,
+                        List.of()
+                );
+
+        when(repository.findStudent("S1"))
+                .thenReturn(student);
+
+        String result =
+                service.register("S1", "CS313");
+
+        assertEquals(
+                "ERROR_INACTIVE_STUDENT",
+                result
+        );
+
+        verify(repository, never())
+                .saveRegistration(any(), any());
+
+        verifyNoInteractions(emailSender);
     }
 
     @Test
@@ -114,68 +159,7 @@ class CourseRegistrationServiceTest {
     }
 
     @Test
-    @DisplayName("Амжилттай үед бүртгэл хадгалагдана")
-    void savesRegistrationWhenValid() {
-
-        Student student =
-                new Student(
-                        "S1",
-                        "a@test.com",
-                        true,
-                        List.of("CS201")
-                );
-
-        when(repository.findStudent("S1"))
-                .thenReturn(student);
-
-        when(repository.courseExists("CS313"))
-                .thenReturn(true);
-
-        when(repository.prerequisites("CS313"))
-                .thenReturn(List.of("CS201"));
-
-        String result =
-                service.register("S1", "CS313");
-
-        assertEquals("OK", result);
-
-        verify(repository)
-                .saveRegistration("S1", "CS313");
-    }
-
-    @Test
-    @DisplayName("Баталгаажуулах имэйл илгээгдэнэ")
-    void sendsConfirmationEmail() {
-
-        Student student =
-                new Student(
-                        "S1",
-                        "student@test.com",
-                        true,
-                        List.of("CS201")
-                );
-
-        when(repository.findStudent("S1"))
-                .thenReturn(student);
-
-        when(repository.courseExists("CS313"))
-                .thenReturn(true);
-
-        when(repository.prerequisites("CS313"))
-                .thenReturn(List.of("CS201"));
-
-        service.register("S1", "CS313");
-
-        verify(emailSender)
-                .send(
-                        eq("student@test.com"),
-                        anyString(),
-                        contains("CS313")
-                );
-    }
-
-    @Test
-    @DisplayName("Имэйл алдаа өгсөн ч бүртгэл OK хэвээр байна")
+    @DisplayName("Имэйл алдаа өгсөн ч бүртгэл OK хэвээр үлдэнэ")
     void emailFailureDoesNotFailRegistration() {
 
         Student student =
@@ -203,6 +187,23 @@ class CourseRegistrationServiceTest {
                 service.register("S1", "CS313");
 
         assertEquals("OK", result);
+
+        verify(repository)
+                .saveRegistration("S1", "CS313");
+    }
+
+
+    @Test
+    @DisplayName("null courseId үед exception")
+    void nullCourseIdShouldThrowException() {
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> service.register("S1", null)
+        );
+
+        verifyNoInteractions(repository);
+        verifyNoInteractions(emailSender);
     }
 
     @Test
@@ -243,16 +244,61 @@ class CourseRegistrationServiceTest {
         );
     }
 
-    @Test
-    @DisplayName("null параметр үед IllegalArgumentException")
-    void nullInputShouldThrowException() {
+    @ParameterizedTest
+    @CsvSource({
+            "MISSING,ERROR_NO_STUDENT",
+            "INACTIVE,ERROR_INACTIVE_STUDENT",
+            "NO_COURSE,ERROR_NO_COURSE"
+    })
+    @DisplayName("Гурван алдааны ангийг нэг параметржүүлсэн тестээр")
+    void errorScenariosParameterizedTest(
+            String scenario,
+            String expectedResult) {
 
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> service.register(null, "CS313")
-        );
+        if (scenario.equals("MISSING")) {
 
-        verifyNoInteractions(repository);
-        verifyNoInteractions(emailSender);
+            lenient()
+                    .when(repository.findStudent("S1"))
+                    .thenReturn(null);
+        }
+
+        if (scenario.equals("INACTIVE")) {
+
+            Student student =
+                    new Student(
+                            "S1",
+                            "a@test.com",
+                            false,
+                            List.of()
+                    );
+
+            lenient()
+                    .when(repository.findStudent("S1"))
+                    .thenReturn(student);
+        }
+
+        if (scenario.equals("NO_COURSE")) {
+
+            Student student =
+                    new Student(
+                            "S1",
+                            "a@test.com",
+                            true,
+                            List.of()
+                    );
+
+            lenient()
+                    .when(repository.findStudent("S1"))
+                    .thenReturn(student);
+
+            lenient()
+                    .when(repository.courseExists("CS313"))
+                    .thenReturn(false);
+        }
+
+        String result =
+                service.register("S1", "CS313");
+
+        assertEquals(expectedResult, result);
     }
 }
