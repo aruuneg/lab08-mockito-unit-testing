@@ -3,6 +3,8 @@ import mn.edu.must.sqat.*;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -25,65 +27,57 @@ class CourseRegistrationServiceTest {
     @InjectMocks
     CourseRegistrationService service;
 
-    @Test
-    @DisplayName("Оюутан байхгүй бол ERROR_NO_STUDENT буцаана")
-    void returnsErrorWhenStudentMissing() {
+    @ParameterizedTest
+    @CsvSource({
+            "MISSING,ERROR_NO_STUDENT",
+            "INACTIVE,ERROR_INACTIVE_STUDENT",
+            "NO_COURSE,ERROR_NO_COURSE"
+    })
+    @DisplayName("Гурван алдааны ангийг параметржүүлсэн тестээр")
+    void errorScenariosParameterizedTest(
+            String scenario,
+            String expectedResult) {
 
-        when(repository.findStudent("S1")).thenReturn(null);
+        if (scenario.equals("MISSING")) {
 
-        String result = service.register("S1", "CS313");
+            when(repository.findStudent("S1"))
+                    .thenReturn(null);
+        }
 
-        assertEquals("ERROR_NO_STUDENT", result);
+        if (scenario.equals("INACTIVE")) {
 
-        verifyNoInteractions(emailSender);
-    }
+            Student student =
+                    new Student(
+                            "S1",
+                            "a@test.com",
+                            false,
+                            List.of()
+                    );
 
-    @Test
-    @DisplayName("Идэвхгүй оюутан үед ERROR_INACTIVE_STUDENT")
-    void returnsErrorWhenStudentInactive() {
+            when(repository.findStudent("S1"))
+                    .thenReturn(student);
+        }
 
-        Student student =
-                new Student(
-                        "S1",
-                        "a@test.com",
-                        false,
-                        List.of()
-                );
+        if (scenario.equals("NO_COURSE")) {
 
-        when(repository.findStudent("S1"))
-                .thenReturn(student);
+            Student student =
+                    new Student(
+                            "S1",
+                            "a@test.com",
+                            true,
+                            List.of()
+                    );
 
-        String result = service.register("S1", "CS313");
+            when(repository.findStudent("S1"))
+                    .thenReturn(student);
 
-        assertEquals(
-                "ERROR_INACTIVE_STUDENT",
-                result
-        );
-
-        verifyNoInteractions(emailSender);
-    }
-
-    @Test
-    @DisplayName("Хичээл байхгүй үед ERROR_NO_COURSE")
-    void returnsErrorWhenCourseMissing() {
-
-        Student student =
-                new Student(
-                        "S1",
-                        "a@test.com",
-                        true,
-                        List.of()
-                );
-
-        when(repository.findStudent("S1"))
-                .thenReturn(student);
-
-        when(repository.courseExists("CS313"))
-                .thenReturn(false);
+            when(repository.courseExists("CS313"))
+                    .thenReturn(false);
+        }
 
         String result = service.register("S1", "CS313");
 
-        assertEquals("ERROR_NO_COURSE", result);
+        assertEquals(expectedResult, result);
     }
 
     @Test
@@ -181,7 +175,7 @@ class CourseRegistrationServiceTest {
     }
 
     @Test
-    @DisplayName("Имэйл алдаа өгсөн ч бүртгэл OK хэвээр")
+    @DisplayName("Имэйл алдаа өгсөн ч бүртгэл OK хэвээр байна")
     void emailFailureDoesNotFailRegistration() {
 
         Student student =
@@ -247,5 +241,18 @@ class CourseRegistrationServiceTest {
         assertTrue(
                 bodyCaptor.getValue().contains("CS313")
         );
+    }
+
+    @Test
+    @DisplayName("null параметр үед IllegalArgumentException")
+    void nullInputShouldThrowException() {
+
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> service.register(null, "CS313")
+        );
+
+        verifyNoInteractions(repository);
+        verifyNoInteractions(emailSender);
     }
 }
